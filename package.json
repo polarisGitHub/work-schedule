@@ -1,0 +1,15 @@
+{
+  "name": "work-schedule",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "wails3 task run:server",
+    "dev:hot": "concurrently -k -n api,ui -c blue,green \"go run -tags server .\" \"npm run dev --prefix frontend\"",
+    "dev:window": "LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 wails3 task dev",
+    "dev:ui": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -o build/bin/work-schedule.exe ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

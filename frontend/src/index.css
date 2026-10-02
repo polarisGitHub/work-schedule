@@ -1,0 +1,121 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* 页面白底面板 */
+.page-panel {
+  min-height: 100%;
+  padding: 24px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+/* 顶栏右侧的「当前排班」一组控件，深蓝底上用浅色文字 */
+.scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.65);
+  white-space: nowrap;
+}
+
+/* 下拉里的每一行排班：名称 + 重命名/删除，鼠标悬停或选中时出现 */
+.scope-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scope-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-option-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.ant-select-item-option:hover .scope-option-actions,
+.ant-select-item-option-selected .scope-option-actions {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.scope-bar .ant-btn-text {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.scope-bar .ant-btn-text:not(:disabled):hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 日历月份切换栏 */
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 8px;
+}
+
+/* 日历单元格：排班浅蓝 / 不排班浅红 / 有人值班浅绿 / 有人不值班浅橙 / 两者都有浅紫 */
+.cal-cell {
+  height: 100%;
+  min-height: 84px;
+  padding: 4px 8px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cal-cell-on {
+  background: #e6f4ff;
+}
+
+.cal-cell-off {
+  background: #fff1f0;
+}
+
+.cal-cell-duty-on {
+  background: #f6ffed;
+}
+
+.cal-cell-duty-off {
+  background: #fff7e6;
+}
+
+.cal-cell-both {
+  background: #f9f0ff;
+}
+
+.cal-cell-active {
+  outline: 2px solid #1677ff;
+  outline-offset: -2px;
+}
+
+.cal-day {
+  color: #666;
+  text-align: right;
+}
+
+.cal-state {
+  color: #333;
+}
+
+.cal-duty {
+  overflow: hidden;
+  color: #333;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

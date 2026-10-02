@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=My Product
+Comment=A tmp-wails-tpl application
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/tmp-wails-tpl %u
+Terminal=false
+Type=Application
+Icon=tmp-wails-tpl
+Categories=Utility;
+StartupWMClass=tmp-wails-tpl
+
+ 

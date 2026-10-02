@@ -53,3 +53,18 @@ export function RuleTypes(): $CancellablePromise<$models.RuleView[] | null> {
 export function SetAssignment(scopeID: number, day: string, shiftID: number, classID: number, teacherID: number, locked: boolean): $CancellablePromise<void> {
     return $Call.ByID(3091810022, scopeID, day, shiftID, classID, teacherID, locked);
 }
+
+/**
+ * Solve 求解并落库。solverName 为空时用日历里配置的算法，再空则用默认。
+ * 锁定格一律不动；无解不报错，未排上的单元进 Unassigned、冲突进 Violations。
+ */
+export function Solve(scopeID: number, solverName: string): $CancellablePromise<$models.SolveReport> {
+    return $Call.ByID(3732234908, scopeID, solverName);
+}
+
+/**
+ * Solvers 列出所有可用算法。
+ */
+export function Solvers(): $CancellablePromise<$models.SolverInfo[] | null> {
+    return $Call.ByID(2015840667);
+}

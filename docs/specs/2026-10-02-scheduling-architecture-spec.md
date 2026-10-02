@@ -163,7 +163,7 @@ type Cell struct { Day string; ShiftID, ClassID int64 }
 
 `Cells` 恒为 1 格是**给合班预留的接口**：等合班业务定下来，只让某些 Unit 的 `Cells` 变成多个，上层（规则 / 求解器 / 检查器）都不用改。
 
-### 硬约束：三个原语
+### 硬约束：四个原语
 
 ```go
 type Constraint interface{ isConstraint() }
@@ -175,11 +175,12 @@ type CountBound struct {            // 对某个"选择子集"的计数上下界
 }
 type PairFix struct { Unit UnitID; Teacher TeacherID; Mode Fix|Ban; Reason string }
 type Cover   struct { Units []UnitID; Reason string }
+type ExclusiveSlot struct { Reason string }   // 同一老师在同一 (天,班次) 最多一个单元
 ```
 
 覆盖能力：
 
-- 一人同一时段只能一格 → `CountBound{teacher:T, slot:(D,S), Max:1}`
+- 一人同一时段只能一格 → `ExclusiveSlot`（**结构约束**：不是规则产出，而是 engine 每次都发射的约束）
 - 每人每天 / 每周上限 → `CountBound{teacher:T, day:D, Max:n}`
 - 间隔至少 n 天 → 对每个长度 n 的滑窗生成 `Max:1`
 - 某天某班次必须 / 禁止某老师（`t_duty`）→ `CountBound{teacher:T, slot:(D,S), Min:1}` / `Max:0`
@@ -280,6 +281,7 @@ type Violation struct {
 | `PairFix{Ban}` | 该对被排上了 → 违规 | Hard |
 | `CountBound` | 按 `Scope` 对结果计数，越界 → 违规 | Hard |
 | `Cover` | 该单元没人 → 违规（即"留空"） | Hard |
+| `ExclusiveSlot` | 同一老师同一 (天,班次) 被排到多个单元 → 违规 | Hard |
 | `Balance/Spread/Prefer` | 对结果求值，算偏差 `Delta` | Soft |
 
 要点：

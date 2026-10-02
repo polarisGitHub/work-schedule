@@ -91,3 +91,37 @@ func TestCheckBalance(t *testing.T) {
 		t.Fatalf("期望 balance 偏差，得到 %+v", vs2)
 	}
 }
+
+func TestCheckExclusiveSlot(t *testing.T) {
+	p := &Problem{
+		Units: []Unit{
+			{ID: 1, Key: "d1|1|c1", Cells: []Cell{{Day: "d1", ShiftID: 1, ClassID: 1}}},
+			{ID: 2, Key: "d1|1|c2", Cells: []Cell{{Day: "d1", ShiftID: 1, ClassID: 2}}},
+		},
+		Candidates: map[UnitID][]TeacherID{1: {10, 11}, 2: {10, 11}},
+		Hard:       []Constraint{ExclusiveSlot{Reason: "测试"}},
+	}
+	// 同一老师同一时段被排到两个单元 → 违规
+	vs := Check(p, &Result{Assignments: []Assignment{{Unit: 1, Teacher: 10}, {Unit: 2, Teacher: 10}}})
+	if !hasViolation(vs, "exclusive_slot") {
+		t.Fatalf("期望 exclusive_slot 违规，得到 %+v", vs)
+	}
+	// 不同老师 → 不违规
+	vs = Check(p, &Result{Assignments: []Assignment{{Unit: 1, Teacher: 10}, {Unit: 2, Teacher: 11}}})
+	if hasViolation(vs, "exclusive_slot") {
+		t.Fatalf("不同老师不应违规，得到 %+v", vs)
+	}
+	// 同一单元跨多个格子（合班）不算违规
+	p2 := &Problem{
+		Units: []Unit{{ID: 1, Key: "m", Cells: []Cell{
+			{Day: "d1", ShiftID: 1, ClassID: 1},
+			{Day: "d1", ShiftID: 1, ClassID: 2},
+		}}},
+		Candidates: map[UnitID][]TeacherID{1: {10}},
+		Hard:       []Constraint{ExclusiveSlot{}},
+	}
+	vs = Check(p2, &Result{Assignments: []Assignment{{Unit: 1, Teacher: 10}}})
+	if hasViolation(vs, "exclusive_slot") {
+		t.Fatalf("同一单元多格子不应违规，得到 %+v", vs)
+	}
+}

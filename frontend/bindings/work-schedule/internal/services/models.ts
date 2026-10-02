@@ -3,7 +3,13 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as plan$0 from "../plan/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as rules$0 from "../rules/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as solver$0 from "../solver/models.js";
 
 /**
  * AssignmentView 一个课表格子。
@@ -112,6 +118,27 @@ export interface RuleView {
 export interface ScopeInfo {
     "id": number;
     "name": string;
+}
+
+/**
+ * SolveReport 一次求解的汇总。
+ */
+export interface SolveReport {
+    "assigned": number;
+    "unassigned": number;
+    "optimal": boolean;
+    "score": number;
+    "violations": plan$0.Violation[] | null;
+}
+
+/**
+ * SolverInfo 供前端列出可选算法。
+ */
+export interface SolverInfo {
+    "name": string;
+    "label": string;
+    "capability": solver$0.Capability;
+    "deterministic": boolean;
 }
 
 /**

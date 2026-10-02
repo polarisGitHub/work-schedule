@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"work-schedule/internal/plan"
 	"work-schedule/internal/store"
 )
 
@@ -84,5 +85,88 @@ func TestRuleTypesIncludesFairRules(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("RuleTypes 应包含 fair_count，得到 %+v", types)
+	}
+}
+
+func TestSolversListsGreedy(t *testing.T) {
+	st := newScheduleStore(t)
+	svc := NewScheduleService(st)
+	found := false
+	for _, s := range svc.Solvers() {
+		if s.Name == "greedy-swap" {
+			found = true
+			if len(s.Capability.Constraints) == 0 {
+				t.Fatal("求解器应声明能力")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("Solvers 应列出 greedy-swap")
+	}
+}
+
+func TestSolveUnknownSolver(t *testing.T) {
+	st := newScheduleStore(t)
+	svc := NewScheduleService(st)
+	if _, err := svc.Solve(1, "nope"); err == nil {
+		t.Fatal("未知求解器应报错")
+	}
+}
+
+func TestSolveWritesAndPreservesLock(t *testing.T) {
+	st := newScheduleStore(t)
+	svc := NewScheduleService(st)
+	_ = seedDatasetSvc(t, st, "teacher", "张老师")
+	teacher2 := seedDatasetSvc(t, st, "teacher", "李老师")
+	class1 := seedDatasetSvc(t, st, "class", "高二3班")
+	_ = seedDatasetSvc(t, st, "class", "高二4班")
+	shift := seedDatasetSvc(t, st, "shift", "晚1")
+
+	if _, err := st.DB().Exec(
+		`INSERT INTO t_schedule_day(scope_id, day, created_at, updated_at) VALUES(1, '2026-10-06', 1, 1)`); err != nil {
+		t.Fatalf("插入排班日失败: %v", err)
+	}
+	// 先把「高二3班」锁定给李老师
+	if err := svc.SetAssignment(1, "2026-10-06", shift, class1, teacher2, true); err != nil {
+		t.Fatalf("锁定失败: %v", err)
+	}
+
+	report, err := svc.Solve(1, "") // 空名字 → 用默认 greedy-swap
+	if err != nil {
+		t.Fatalf("Solve 失败: %v", err)
+	}
+	if report.Assigned != 2 {
+		t.Fatalf("同一天一个班次两个班都应排上，得到 %+v", report)
+	}
+	for _, v := range report.Violations {
+		if v.Level == plan.LevelHard {
+			t.Fatalf("可行问题上不该有硬冲突: %+v", v)
+		}
+	}
+
+	// 锁定格保持不变
+	var locked struct {
+		TeacherID int64 `db:"teacher_id"`
+		Locked    bool  `db:"locked"`
+	}
+	if err := st.DB().Get(&locked, `
+		SELECT teacher_id, locked FROM t_assignment
+		WHERE scope_id = 1 AND day = '2026-10-06' AND shift_id = ? AND class_id = ? AND deleted_at IS NULL`,
+		shift, class1); err != nil {
+		t.Fatalf("查锁定格失败: %v", err)
+	}
+	if locked.TeacherID != teacher2 || !locked.Locked {
+		t.Fatalf("锁定格应保持 teacher2 且 locked，得到 %+v", locked)
+	}
+
+	// 同一时段两个班必须由两个不同老师守（ExclusiveSlot）
+	var distinct int
+	if err := st.DB().Get(&distinct, `
+		SELECT COUNT(DISTINCT teacher_id) FROM t_assignment
+		WHERE scope_id = 1 AND day = '2026-10-06' AND shift_id = ? AND deleted_at IS NULL`, shift); err != nil {
+		t.Fatalf("统计失败: %v", err)
+	}
+	if distinct != 2 {
+		t.Fatalf("同时段两格应由两位老师分守，得到 distinct=%d", distinct)
 	}
 }

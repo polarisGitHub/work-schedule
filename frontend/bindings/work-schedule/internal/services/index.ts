@@ -24,5 +24,7 @@ export type {
     MemberView,
     RuleView,
     ScopeInfo,
+    SolveReport,
+    SolverInfo,
     TagView
 } from "./models.js";

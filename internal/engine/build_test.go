@@ -103,3 +103,28 @@ func TestBuildProblemDutyBounds(t *testing.T) {
 		t.Fatalf("问题里应含「指定不值班」翻译出的 CountBound{Max:0}，得到 %+v", p.Hard)
 	}
 }
+
+func TestBuildProblemHasExclusiveSlot(t *testing.T) {
+	st := newTestStore(t)
+	_ = seedDataset(t, st, "teacher", "张老师")
+	_ = seedDataset(t, st, "class", "高二3班")
+	_ = seedDataset(t, st, "shift", "晚1")
+	if _, err := st.DB().Exec(
+		`INSERT INTO t_schedule_day(scope_id, day, created_at, updated_at) VALUES(1, '2026-10-06', 1, 1)`); err != nil {
+		t.Fatalf("插入排班日失败: %v", err)
+	}
+
+	p, err := BuildProblem(st, 1)
+	if err != nil {
+		t.Fatalf("BuildProblem 失败: %v", err)
+	}
+	found := false
+	for _, c := range p.Hard {
+		if _, ok := c.(plan.ExclusiveSlot); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Problem.Hard 应含 ExclusiveSlot，得到 %+v", p.Hard)
+	}
+}

@@ -92,6 +92,9 @@ func BuildProblem(st *store.Store, scopeID int64) (*plan.Problem, error) {
 	// 6) 每格必须有老师
 	hard.Items = append(hard.Items, plan.Cover{Units: unitIDs, Reason: "每格都要有人"})
 
+	// 6.5) 结构约束：同一老师同一时段只能守一个单元（合班由单元的多格子表达，无需特例）
+	hard.Items = append(hard.Items, plan.ExclusiveSlot{Reason: "同一老师同一时段只能守一个单元"})
+
 	// 7) 候选集收窄为切片
 	candidates := make(map[plan.UnitID][]plan.TeacherID, len(cand.Allow))
 	reason := make(map[plan.UnitID]map[plan.TeacherID]string, len(cand.Allow))

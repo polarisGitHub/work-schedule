@@ -74,6 +74,33 @@ func Check(p *Problem, r *Result) []Violation {
 						Message: fmt.Sprintf("单元 %d 未被覆盖（%s）", id, ct.Reason)})
 				}
 			}
+		case ExclusiveSlot:
+			type slotKey struct {
+				t     TeacherID
+				day   string
+				shift int64
+			}
+			occ := map[slotKey]UnitID{}
+			reported := map[slotKey]bool{}
+			for _, a := range r.Assignments {
+				u, ok := unitByID[a.Unit]
+				if !ok {
+					continue
+				}
+				for _, cell := range u.Cells {
+					k := slotKey{a.Teacher, cell.Day, cell.ShiftID}
+					prev, dup := occ[k]
+					if !dup {
+						occ[k] = a.Unit
+						continue
+					}
+					if prev != a.Unit && !reported[k] {
+						reported[k] = true
+						out = append(out, Violation{Level: LevelHard, Kind: "exclusive_slot", Teacher: Ptr(a.Teacher),
+							Message: fmt.Sprintf("老师 %d 在 %s 的班次 %d 被排到了多个单元（%d、%d）", a.Teacher, cell.Day, cell.ShiftID, prev, a.Unit)})
+					}
+				}
+			}
 		}
 	}
 

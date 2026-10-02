@@ -96,6 +96,17 @@ type Cover struct {
 
 func (Cover) isConstraint() {}
 
+// ExclusiveSlot 结构约束：同一老师在同一 (天, 班次) 下最多被排到一个单元。
+//
+// 合班时一个单元覆盖多个格子，仍然只算"一个单元"，所以这里不需要特例。
+// 单列成一个原语（而不是按 (老师,天,班次) 铺开成上万条 CountBound），
+// 是为了让检查器一次线性扫描就能复核。
+type ExclusiveSlot struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+func (ExclusiveSlot) isConstraint() {}
+
 // CostTerm 软代价。
 type CostTerm interface{ isCostTerm() }
 

@@ -3,14 +3,17 @@
 
 import * as CalendarService from "./calendarservice.js";
 import * as MetadataService from "./metadataservice.js";
+import * as ScheduleService from "./scheduleservice.js";
 import * as ScopeService from "./scopeservice.js";
 export {
     CalendarService,
     MetadataService,
+    ScheduleService,
     ScopeService
 };
 
 export type {
+    AssignmentView,
     BatchResult,
     BindTextResult,
     BindingInput,
@@ -19,6 +22,7 @@ export type {
     DatasetView,
     DutyView,
     MemberView,
+    RuleView,
     ScopeInfo,
     TagView
 } from "./models.js";

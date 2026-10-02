@@ -30,6 +30,7 @@ func main() {
 			application.NewService(services.NewScopeService(st)),
 			application.NewService(services.NewMetadataService(st)),
 			application.NewService(services.NewCalendarService(st)),
+			application.NewService(services.NewScheduleService(st)),
 		},
 	})
 

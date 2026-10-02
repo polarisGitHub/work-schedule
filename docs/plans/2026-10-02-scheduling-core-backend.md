@@ -2,7 +2,12 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 搭出"元数据 + 挂载规则 → 声明式 `Problem` → 检查器复核结果"的后端核心，让**人工排班 + 实时体检**可用（不含求解器、不含前端）。
+**Goal:** 搭出"元数据 + 挂载规则 → 声明式 `Problem` → 检查器复核结果"的后端核心，让**人工排班 + 实时体检**可用。
+
+**范围说明（重要）：** 本计划覆盖 spec 实施顺序的**第 1~4 步的后端部分**。下面两项是**本计划有意拆出去的**（为控制单份计划的粒度），**不是 spec 排除的**：
+
+- **贪心求解器**（spec 实施顺序**第 5 步**）→ 另出一份计划；
+- **排班结果页**（spec 第 4 步里的前端部分）→ 另开会话。
 
 **Architecture:** 声明式契约（`internal/plan`）→ 规则层把 `(type,param)` 翻译成契约数据（`internal/rules`）→ 引擎读库里元数据并跑规则产出 `Problem`（`internal/engine`）→ 检查器对结果按同一批契约数据复核。规则与算法都只依赖契约，互不认识。
 
@@ -2310,9 +2315,17 @@ Expected: PASS（`internal/plan`、`internal/rules`、`internal/store`、`intern
 Run: `go build ./...`
 Expected: 无输出
 
-## 本计划范围外（后续计划）
+## 本计划范围与后续
 
-- **求解器**（`internal/solver`，greedy + 局部 swap）—— spec 实施顺序第 5 步
-- **规则页 / 结果页前端**—— 另开会话（依赖本计划冻结的契约形状）
-- **版本快照**、**合班参与求解**、**or-tools sidecar**
+**本计划有意拆出去的（不是 spec 排除的）：**
+
+- **贪心求解器**（`internal/solver` + `Solve` 落库）—— spec 实施顺序**第 5 步**，另出一份计划；
+- **排班结果页 / 规则页前端** —— spec 第 4 步里的前端部分，另开会话（依赖本计划冻结的契约形状）。
+
+**spec 明确列为范围外（业务未定 / 本次不做）：**
+
+- **合班参与求解** —— 业务规则未定，`Unit.Cells` 已预留接口；
+- **具体业务规则**（主课班、按学科轮换等）—— 等业务给规则，架构只保证"能快速加"；
+- **`t_rule` 版本化 / 规则快照** —— 本次版本只针对结果；
+- **or-tools / 第二条算法** —— 接口已留，需要时再接。
 

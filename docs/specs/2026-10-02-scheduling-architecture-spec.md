@@ -317,17 +317,20 @@ SaveVersion / ListVersions / RestoreVersion
 
 ```
 internal/
-  rules/    rule.go registry.go fair_count.go fair_interval.go …
-  solver/   solver.go registry.go greedy.go
-  plan/     problem.go build.go check.go
+  plan/     problem.go check.go          # 契约类型 + 检查器（不依赖项目内其它包）
+  rules/    rule.go fair.go loader.go …  # 规则接口 / 注册表 / 实现 / 加载（依赖 plan）
+  engine/   curriculum.go build.go       # 读库 + 跑规则 → Problem（依赖 plan、rules、store）
+  solver/   solver.go greedy.go          # 求解器（依赖 plan；实施顺序第 5 步）
   services/ schedule.go
 ```
+
+> **分层修正**：最初设想 `plan/` 同时放 `problem.go` / `build.go` / `check.go`，实测会形成 **import 环**——`rules` 的 `BuildCtx` 需要 `plan.Unit`（`rules` → `plan`），而 builder 又要调用 `rules`（`plan` → `rules`）。因此 **builder 移到 `engine`**，位于 `plan` 与 `rules` 之上。`plan` 只留契约与检查器。
 
 ## 实施顺序
 
 1. **契约先行**：`plan/problem.go`（Unit / Constraint / CostTerm / Problem / Result / Violation，纯类型，零依赖）
 2. **规则骨架**：`rules` 注册表 + `BuildCtx`，把现有 `fair_count` / `fair_interval` 改造成两条规则实现
-3. **Problem 构建**：`plan/build.go`（跑出候选集 + 代价项）
+3. **Problem 构建**：`engine/build.go`（跑出候选集 + 代价项）
 4. **检查器 + 结果读写**：`plan/check.go` + `SetAssignment` + 排班结果页 → **此时"纯人工排 + 实时体检"已可用**
 5. **贪心求解器**：`solver/greedy.go` + `Solve` 落库 → "一键排 + 手改 + 体检"闭环完整
 6. 规则页、锁定交互、版本快照

@@ -5,8 +5,12 @@ import (
 	"strings"
 	"time"
 
+	"work-schedule/internal/model"
 	"work-schedule/internal/store"
 )
+
+// defaultSubjectTags 新建排班时预置的学科标签。
+var defaultSubjectTags = []string{"主课", "专业课"}
 
 // nowMS 当前时间的 Unix 毫秒，业务表的时间列统一用它。
 func nowMS() int64 { return time.Now().UnixMilli() }
@@ -48,12 +52,29 @@ func (s *ScopeService) CreateScope(name string) (ScopeInfo, error) {
 		return ScopeInfo{}, errors.New("已存在同名排班")
 	}
 	now := nowMS()
-	res, err := s.store.DB().Exec(`INSERT INTO t_scope(name, created_at, updated_at) VALUES(?, ?, ?)`, name, now, now)
+	tx, err := s.store.DB().Beginx()
+	if err != nil {
+		return ScopeInfo{}, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`INSERT INTO t_scope(name, created_at, updated_at) VALUES(?, ?, ?)`, name, now, now)
 	if err != nil {
 		return ScopeInfo{}, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		return ScopeInfo{}, err
+	}
+	// 预置两个内置学科标签；用户可在学科页的标签管理里增删改，但不能删除内置标签。
+	for _, tag := range defaultSubjectTags {
+		if _, err := tx.Exec(
+			`INSERT INTO t_dataset(scope_id, type, col1, col2, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)`,
+			id, model.DatasetSubjectTag, tag, subjectTagBuiltinFlag, now, now); err != nil {
+			return ScopeInfo{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return ScopeInfo{}, err
 	}
 	return ScopeInfo{ID: id, Name: name}, nil

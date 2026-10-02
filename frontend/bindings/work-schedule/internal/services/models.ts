@@ -10,6 +10,15 @@ export interface BatchResult {
 }
 
 /**
+ * BindTextResult 文本批量绑定的结果。errors 非空表示整批都没有写入。
+ */
+export interface BindTextResult {
+    "inserted": number;
+    "skipped": number;
+    "errors": string[] | null;
+}
+
+/**
  * BindingInput 任课绑定的输入项。
  */
 export interface BindingInput {
@@ -40,7 +49,7 @@ export interface CalendarConfig {
 }
 
 /**
- * DatasetView 元数据实体；老师与班级附带任课信息，班次附带起止时间。
+ * DatasetView 元数据实体；老师与班级附带任课信息，班次附带起止时间，学科附带标签，合班附带成员。
  */
 export interface DatasetView {
     "id": number;
@@ -48,6 +57,8 @@ export interface DatasetView {
     "start": string;
     "end": string;
     "bindings": BindingView[] | null;
+    "tagIds": number[] | null;
+    "members": MemberView[] | null;
 }
 
 /**
@@ -63,9 +74,27 @@ export interface DutyView {
 }
 
 /**
+ * MemberView 合班包含的一个物理班。
+ */
+export interface MemberView {
+    "id": number;
+    "name": string;
+}
+
+/**
  * ScopeInfo 排班范围（一个排班）。
  */
 export interface ScopeInfo {
     "id": number;
     "name": string;
+}
+
+/**
+ * TagView 一个学科标签、被多少学科挂载，以及是否为内置标签（内置的不允许删除）。
+ */
+export interface TagView {
+    "id": number;
+    "name": string;
+    "count": number;
+    "builtin": boolean;
 }

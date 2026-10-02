@@ -37,7 +37,6 @@ export function ListScopes(): $CancellablePromise<$models.ScopeInfo[] | null> {
 
 /**
  * PurgeDeleted 把全库里逻辑删除的数据做物理删除，返回删除的行数。
- * 表按「子表在前」的顺序清理，避免外键 RESTRICT 拦住父表。
  */
 export function PurgeDeleted(): $CancellablePromise<number> {
     return $Call.ByID(1770497606);

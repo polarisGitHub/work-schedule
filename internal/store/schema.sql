@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS t_scope (
     deleted_at BIGINT
 );
 
--- 范围内的实体：subject / teacher / class / shift / binding
+-- 范围内的实体：subject / teacher / class / shift / binding / subject_tag
 CREATE TABLE IF NOT EXISTS t_dataset (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     scope_id   INTEGER NOT NULL,
@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS t_assignment (
 );
 
 -- 范围内的连线：from_id / to_id 指向 t_dataset，rule_id 指向 t_rule
+-- subject_tag 类型即「学科挂标签」：from_id 是学科，to_id 是标签
 CREATE TABLE IF NOT EXISTS t_mapping (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     scope_id   INTEGER NOT NULL,

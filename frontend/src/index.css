@@ -59,6 +59,11 @@ body,
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* 老师表/班级表：一行主体按任课展开成多行，勾选时高亮它跨的这几行 */
+.merged-row-selected td {
+  background: #e6f4ff;
+}
+
 /* 日历月份切换栏 */
 .cal-header {
   display: flex;

@@ -1,18 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key } from 'react'
-import { App as AntdApp, Button, Popconfirm, Space, Table } from 'antd'
+import { App as AntdApp, Button, Popconfirm, Select, Space, Table } from 'antd'
 import type { TableColumnsType } from 'antd'
 
 import BatchNameModal from '../components/BatchNameModal'
 import ListToolbar from '../components/ListToolbar'
 import NameModal from '../components/NameModal'
+import SubjectTagDrawer from '../components/SubjectTagDrawer'
 import { reportBatchResult } from '../batchReport'
 import { DATASET_SUBJECT, MetadataService, errorText, tablePagination } from '../api'
-import type { DatasetView } from '../api'
+import type { DatasetView, TagView } from '../api'
 
 type Props = { scopeId: number }
 
-/** 学科页：增删改学科。 */
+/** 学科页：增删改学科，并给学科挂标签；标签本身在抽屉里管理。 */
 export default function SubjectPage({ scopeId }: Props) {
   const { message, modal } = AntdApp.useApp()
 
@@ -27,6 +28,9 @@ export default function SubjectPage({ scopeId }: Props) {
     id: 0,
     name: '',
   })
+  // 标签列表供行内多选与「标签管理」抽屉共用
+  const [tags, setTags] = useState<TagView[]>([])
+  const [tagDrawer, setTagDrawer] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -41,9 +45,24 @@ export default function SubjectPage({ scopeId }: Props) {
     }
   }, [scopeId, search, message])
 
+  const loadTags = useCallback(async () => {
+    try {
+      const list = await MetadataService.ListSubjectTags(scopeId)
+      setTags(list ?? [])
+    } catch (err) {
+      message.error(errorText(err))
+    }
+  }, [scopeId, message])
+
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void loadTags()
+  }, [loadTags])
+
+  const tagOptions = useMemo(() => tags.map((tag) => ({ label: tag.name, value: tag.id })), [tags])
 
   const addNames = async (names: string[]) => {
     try {
@@ -87,11 +106,24 @@ export default function SubjectPage({ scopeId }: Props) {
     }
   }
 
+  // 行内改标签：先本地更新让选择器即时反馈，失败再整表回滚
+  const saveTags = async (subjectId: number, tagIds: number[]) => {
+    setRows((prev) => prev.map((row) => (row.id === subjectId ? { ...row, tagIds } : row)))
+    try {
+      await MetadataService.SaveSubjectTags(scopeId, subjectId, tagIds)
+      await loadTags()
+    } catch (err) {
+      message.error(errorText(err))
+      await load()
+    }
+  }
+
   const remove = async (row: DatasetView) => {
     try {
       await MetadataService.DeleteDataset(scopeId, row.id)
       message.success('删除成功')
       await load()
+      await loadTags()
     } catch (err) {
       message.error(errorText(err))
     }
@@ -99,6 +131,24 @@ export default function SubjectPage({ scopeId }: Props) {
 
   const columns: TableColumnsType<DatasetView> = [
     { title: '名称', dataIndex: 'name' },
+    {
+      title: '标签',
+      dataIndex: 'tagIds',
+      width: 260,
+      render: (_, row) => (
+        <Select
+          mode="multiple"
+          size="small"
+          style={{ width: '100%' }}
+          placeholder="设置标签"
+          allowClear
+          maxTagCount="responsive"
+          value={row.tagIds ?? []}
+          options={tagOptions}
+          onChange={(value: number[]) => void saveTags(row.id, value)}
+        />
+      ),
+    },
     {
       title: '操作',
       width: 200,
@@ -130,6 +180,7 @@ export default function SubjectPage({ scopeId }: Props) {
           setKeyword('')
           setSearch('')
         }}
+        extra={<Button onClick={() => setTagDrawer(true)}>标签管理</Button>}
       />
       <Table
         rowKey="id"
@@ -155,6 +206,16 @@ export default function SubjectPage({ scopeId }: Props) {
         label="学科"
         onCancel={() => setAdding(false)}
         onSubmit={addNames}
+      />
+
+      <SubjectTagDrawer
+        scopeId={scopeId}
+        open={tagDrawer}
+        onClose={() => setTagDrawer(false)}
+        onChanged={() => {
+          void loadTags()
+          void load()
+        }}
       />
     </>
   )

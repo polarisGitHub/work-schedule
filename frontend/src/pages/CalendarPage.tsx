@@ -47,7 +47,7 @@ export default function CalendarPage({ scopeId }: Props) {
 
   const [startDate, setStartDate] = useState<Dayjs | null>(null)
   const [endDate, setEndDate] = useState<Dayjs | null>(null)
-  const [weekdays, setWeekdays] = useState<boolean[]>([true, true, true, true, true, false, true])
+  const [weekdays, setWeekdays] = useState<boolean[]>(Array(7).fill(false))
   const [solver, setSolver] = useState('')
   const [cursor, setCursor] = useState<Dayjs>(dayjs())
   const [generating, setGenerating] = useState(false)

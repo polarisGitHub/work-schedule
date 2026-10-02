@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Button, Input, Space } from 'antd'
 
 type Props = {
@@ -10,6 +11,8 @@ type Props = {
   onKeywordChange: (value: string) => void
   onSearch: () => void
   onReset: () => void
+  /** 追加在左侧按钮区的额外操作，如学科页的「标签管理」 */
+  extra?: ReactNode
 }
 
 /** 元数据页面统一的头部：左边添加 + 批量删除，右边按名称搜索。 */
@@ -21,6 +24,7 @@ export default function ListToolbar({
   onKeywordChange,
   onSearch,
   onReset,
+  extra,
 }: Props) {
   return (
     <div
@@ -40,6 +44,7 @@ export default function ListToolbar({
             批量删除
           </Button>
         )}
+        {extra}
       </Space>
       <Space>
         <Input

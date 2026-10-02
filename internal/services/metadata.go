@@ -30,16 +30,35 @@ type BindingInput struct {
 	ClassID   int64 `json:"classId"`
 }
 
-// DatasetView 元数据实体；老师与班级附带任课信息，班次附带起止时间。
+// MemberView 合班包含的一个物理班。
+type MemberView struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// DatasetView 元数据实体；老师与班级附带任课信息，班次附带起止时间，学科附带标签，合班附带成员。
 type DatasetView struct {
 	ID       int64         `json:"id"`
 	Name     string        `json:"name"`
 	Start    string        `json:"start"`
 	End      string        `json:"end"`
 	Bindings []BindingView `json:"bindings"`
+	TagIDs   []int64       `json:"tagIds"`
+	Members  []MemberView  `json:"members"`
 }
 
-// MetadataService 管理范围内的实体：老师、班级、学科、班次，以及任课绑定。
+// TagView 一个学科标签、被多少学科挂载，以及是否为内置标签（内置的不允许删除）。
+type TagView struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Count   int64  `json:"count"`
+	Builtin bool   `json:"builtin"`
+}
+
+// t_dataset.col2 对学科标签存内置标记：内置标签（主课 / 专业课）不允许删除。
+const subjectTagBuiltinFlag = "1"
+
+// MetadataService 管理范围内的实体：老师、班级、学科、学科标签、班次，以及任课绑定。
 type MetadataService struct {
 	store *store.Store
 }
@@ -86,26 +105,174 @@ func (s *MetadataService) ListDatasets(scopeID int64, typ string, keyword string
 
 	out := make([]DatasetView, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, DatasetView{ID: r.ID, Name: r.Name, Start: r.Start, End: r.End, Bindings: []BindingView{}})
+		out = append(out, DatasetView{
+			ID: r.ID, Name: r.Name, Start: r.Start, End: r.End,
+			Bindings: []BindingView{}, TagIDs: []int64{}, Members: []MemberView{},
+		})
 	}
 	if typ == model.DatasetTeacher || typ == model.DatasetClass {
 		if err := s.attachBindings(scopeID, typ, out); err != nil {
 			return nil, err
 		}
 	}
+	if typ == model.DatasetSubject {
+		if err := s.attachSubjectTags(scopeID, out); err != nil {
+			return nil, err
+		}
+	}
+	if typ == model.DatasetMergedClass {
+		if err := s.attachMembers(scopeID, out); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
+}
+
+// mergedMemberQuery 取范围内全部有效的合班-物理班成员关系，一次查完再挂到合班上。
+const mergedMemberQuery = `
+SELECT m.from_id AS merged_id, c.id AS class_id, COALESCE(c.col1, '') AS class_name
+FROM t_mapping m
+JOIN t_dataset c ON c.scope_id = m.scope_id AND c.id = m.to_id AND c.deleted_at IS NULL
+WHERE m.scope_id = ? AND m.type = 'merged_class_member' AND m.deleted_at IS NULL
+ORDER BY m.from_id, c.id`
+
+// attachMembers 把成员物理班挂到对应合班上。
+func (s *MetadataService) attachMembers(scopeID int64, list []DatasetView) error {
+	rows := []struct {
+		MergedID  int64  `db:"merged_id"`
+		ClassID   int64  `db:"class_id"`
+		ClassName string `db:"class_name"`
+	}{}
+	if err := s.store.DB().Select(&rows, mergedMemberQuery, scopeID); err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	index := make(map[int64]int, len(list))
+	for i := range list {
+		index[list[i].ID] = i
+	}
+	for _, r := range rows {
+		if i, ok := index[r.MergedID]; ok {
+			list[i].Members = append(list[i].Members, MemberView{ID: r.ClassID, Name: r.ClassName})
+		}
+	}
+	return nil
+}
+
+// subjectTagQuery 取范围内全部有效的学科-标签挂载，一次查完再挂到学科列表上。
+const subjectTagQuery = `
+SELECT m.from_id AS subject_id, m.to_id AS tag_id
+FROM t_mapping m
+JOIN t_dataset t ON t.scope_id = m.scope_id AND t.id = m.to_id AND t.deleted_at IS NULL
+WHERE m.scope_id = ? AND m.type = 'subject_tag' AND m.deleted_at IS NULL
+ORDER BY m.from_id, m.to_id`
+
+// attachSubjectTags 把标签 id 挂到对应学科上。
+func (s *MetadataService) attachSubjectTags(scopeID int64, list []DatasetView) error {
+	rows := []struct {
+		SubjectID int64 `db:"subject_id"`
+		TagID     int64 `db:"tag_id"`
+	}{}
+	if err := s.store.DB().Select(&rows, subjectTagQuery, scopeID); err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	index := make(map[int64]int, len(list))
+	for i := range list {
+		index[list[i].ID] = i
+	}
+	for _, r := range rows {
+		if i, ok := index[r.SubjectID]; ok {
+			list[i].TagIDs = append(list[i].TagIDs, r.TagID)
+		}
+	}
+	return nil
+}
+
+// ListSubjectTags 列出范围内全部学科标签，并统计各标签被多少学科挂载。
+func (s *MetadataService) ListSubjectTags(scopeID int64) ([]TagView, error) {
+	out := []TagView{}
+	if err := s.store.DB().Select(&out, `
+		SELECT t.id AS id, COALESCE(t.col1, '') AS name,
+		       (SELECT COUNT(*) FROM t_mapping m
+		        JOIN t_dataset s ON s.scope_id = m.scope_id AND s.id = m.from_id
+		                            AND s.type = 'subject' AND s.deleted_at IS NULL
+		        WHERE m.scope_id = t.scope_id AND m.type = 'subject_tag'
+		          AND m.to_id = t.id AND m.deleted_at IS NULL) AS count,
+		       CASE WHEN COALESCE(t.col2, '') = ? THEN 1 ELSE 0 END AS builtin
+		FROM t_dataset t
+		WHERE t.scope_id = ? AND t.type = 'subject_tag' AND t.deleted_at IS NULL
+		ORDER BY t.id`, subjectTagBuiltinFlag, scopeID); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SaveSubjectTags 整表替换一个学科的标签挂载。
+func (s *MetadataService) SaveSubjectTags(scopeID int64, subjectID int64, tagIDs []int64) error {
+	tx, err := s.store.DB().Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.Get(&exists, `SELECT COUNT(*) FROM t_dataset WHERE id = ? AND scope_id = ? AND type = ? AND deleted_at IS NULL`,
+		subjectID, scopeID, model.DatasetSubject); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return errors.New("学科不存在")
+	}
+
+	now := nowMS()
+	if _, err := tx.Exec(`
+		UPDATE t_mapping SET deleted_at = ?, updated_at = ?
+		WHERE scope_id = ? AND type = ? AND from_id = ? AND deleted_at IS NULL`,
+		now, now, scopeID, model.MappingSubjectTag, subjectID); err != nil {
+		return err
+	}
+
+	seen := map[int64]bool{}
+	for _, tagID := range tagIDs {
+		if tagID == 0 || seen[tagID] {
+			continue
+		}
+		seen[tagID] = true
+		var n int
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM t_dataset WHERE id = ? AND scope_id = ? AND type = ? AND deleted_at IS NULL`,
+			tagID, scopeID, model.DatasetSubjectTag); err != nil {
+			return err
+		}
+		if n == 0 {
+			return errors.New("标签不存在")
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO t_mapping(scope_id, type, from_id, to_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)`,
+			scopeID, model.MappingSubjectTag, subjectID, tagID, now, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// bindingRow bindingQuery 的结果行。
+type bindingRow struct {
+	TeacherID int64  `db:"teacher_id"`
+	Teacher   string `db:"teacher"`
+	SubjectID int64  `db:"subject_id"`
+	Subject   string `db:"subject"`
+	ClassID   int64  `db:"class_id"`
+	Class     string `db:"class"`
 }
 
 // attachBindings 把任课挂到老师（按老师）或班级（按班级）上。
 func (s *MetadataService) attachBindings(scopeID int64, typ string, list []DatasetView) error {
-	rows := []struct {
-		TeacherID int64  `db:"teacher_id"`
-		Teacher   string `db:"teacher"`
-		SubjectID int64  `db:"subject_id"`
-		Subject   string `db:"subject"`
-		ClassID   int64  `db:"class_id"`
-		Class     string `db:"class"`
-	}{}
+	rows := []bindingRow{}
 	if err := s.store.DB().Select(&rows, bindingQuery, scopeID); err != nil {
 		return err
 	}
@@ -141,13 +308,13 @@ type BatchResult struct {
 }
 
 // SaveDatasets 批量添加实体：先对入参去重（粘贴的文本本身可能重复），
-// 再和库里已有的名称对比，重复的不写入。只支持老师、班级、学科，班次还要填时间段。
+// 再和库里已有的名称对比，重复的不写入。支持老师、班级、学科、学科标签，班次还要填时间段。
 func (s *MetadataService) SaveDatasets(scopeID int64, typ string, names []string) (BatchResult, error) {
 	result := BatchResult{Inserted: []string{}, Duplicates: []string{}}
 	switch typ {
-	case model.DatasetTeacher, model.DatasetClass, model.DatasetSubject:
+	case model.DatasetTeacher, model.DatasetClass, model.DatasetSubject, model.DatasetSubjectTag:
 	default:
-		return result, errors.New("只支持批量添加老师、班级、学科")
+		return result, errors.New("只支持批量添加老师、班级、学科、学科标签")
 	}
 
 	// 先去重：去空行、去重，保留第一次出现的顺序
@@ -295,7 +462,107 @@ func (s *MetadataService) SaveShift(scopeID int64, id int64, name string, start 
 	return DatasetView{ID: id, Name: name, Start: startAt, End: endAt, Bindings: []BindingView{}}, nil
 }
 
-// DeleteDataset 软删实体：老师 / 班级 / 学科连带删相关任课，并连带软删引用它的值班与课表格子。
+// SaveMergedClass 新增或修改合班，整表替换成员物理班。id 为 0 表示新增。
+// 合班名在 merged_class 内唯一；成员只能是物理班且至少 2 个；同一物理班可属于多个合班。
+func (s *MetadataService) SaveMergedClass(scopeID int64, id int64, name string, memberIDs []int64) (DatasetView, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return DatasetView{}, errors.New("名称不能为空")
+	}
+	if err := s.checkNameUnique(scopeID, model.DatasetMergedClass, id, name); err != nil {
+		return DatasetView{}, err
+	}
+
+	members := make([]int64, 0, len(memberIDs))
+	seen := map[int64]bool{}
+	for _, mid := range memberIDs {
+		if mid == 0 || seen[mid] {
+			continue
+		}
+		seen[mid] = true
+		members = append(members, mid)
+	}
+	if len(members) < 2 {
+		return DatasetView{}, errors.New("合班至少需要选择 2 个班级")
+	}
+
+	tx, err := s.store.DB().Beginx()
+	if err != nil {
+		return DatasetView{}, err
+	}
+	defer tx.Rollback()
+
+	for _, mid := range members {
+		var n int
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM t_dataset WHERE id = ? AND scope_id = ? AND type = ? AND deleted_at IS NULL`,
+			mid, scopeID, model.DatasetClass); err != nil {
+			return DatasetView{}, err
+		}
+		if n == 0 {
+			return DatasetView{}, errors.New("班级不存在")
+		}
+	}
+
+	now := nowMS()
+	mergedID := id
+	if id == 0 {
+		res, err := tx.Exec(`INSERT INTO t_dataset(scope_id, type, col1, created_at, updated_at) VALUES(?, ?, ?, ?, ?)`,
+			scopeID, model.DatasetMergedClass, name, now, now)
+		if err != nil {
+			return DatasetView{}, err
+		}
+		if mergedID, err = res.LastInsertId(); err != nil {
+			return DatasetView{}, err
+		}
+	} else {
+		res, err := tx.Exec(`UPDATE t_dataset SET col1 = ?, updated_at = ? WHERE id = ? AND scope_id = ? AND type = ? AND deleted_at IS NULL`,
+			name, now, id, scopeID, model.DatasetMergedClass)
+		if err != nil {
+			return DatasetView{}, err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return DatasetView{}, errors.New("记录不存在")
+		}
+		if _, err := tx.Exec(`UPDATE t_mapping SET deleted_at = ?, updated_at = ? WHERE scope_id = ? AND type = ? AND from_id = ? AND deleted_at IS NULL`,
+			now, now, scopeID, model.MappingMergedClassMember, id); err != nil {
+			return DatasetView{}, err
+		}
+	}
+
+	for _, mid := range members {
+		if _, err := tx.Exec(`INSERT INTO t_mapping(scope_id, type, from_id, to_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)`,
+			scopeID, model.MappingMergedClassMember, mergedID, mid, now, now); err != nil {
+			return DatasetView{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return DatasetView{}, err
+	}
+	return s.loadMergedClass(scopeID, mergedID, name)
+}
+
+// loadMergedClass 读回合班及其成员，用于保存后返回。
+func (s *MetadataService) loadMergedClass(scopeID int64, id int64, name string) (DatasetView, error) {
+	view := DatasetView{ID: id, Name: name, Bindings: []BindingView{}, TagIDs: []int64{}, Members: []MemberView{}}
+	rows := []struct {
+		ID   int64  `db:"class_id"`
+		Name string `db:"class_name"`
+	}{}
+	if err := s.store.DB().Select(&rows, `
+		SELECT c.id AS class_id, COALESCE(c.col1, '') AS class_name
+		FROM t_mapping m
+		JOIN t_dataset c ON c.scope_id = m.scope_id AND c.id = m.to_id AND c.deleted_at IS NULL
+		WHERE m.scope_id = ? AND m.type = ? AND m.from_id = ? AND m.deleted_at IS NULL
+		ORDER BY c.id`, scopeID, model.MappingMergedClassMember, id); err != nil {
+		return DatasetView{}, err
+	}
+	for _, r := range rows {
+		view.Members = append(view.Members, MemberView{ID: r.ID, Name: r.Name})
+	}
+	return view, nil
+}
+
+// DeleteDataset 软删实体：老师 / 班级 / 学科连带删相关任课，并连带软删引用它的值班与课表格子；删标签只解除挂载，内置标签不允许删除。
 func (s *MetadataService) DeleteDataset(scopeID int64, id int64) error {
 	tx, err := s.store.DB().Beginx()
 	if err != nil {
@@ -309,7 +576,7 @@ func (s *MetadataService) DeleteDataset(scopeID int64, id int64) error {
 	return tx.Commit()
 }
 
-// DeleteDatasets 批量软删实体，已经不存在（或被删过）的直接跳过。老师 / 班级 / 学科 / 班次都走这里。
+// DeleteDatasets 批量软删实体，已经不存在（或被删过）的直接跳过。老师 / 班级 / 学科 / 班次 / 学科标签都走这里。
 func (s *MetadataService) DeleteDatasets(scopeID int64, ids []int64) error {
 	tx, err := s.store.DB().Beginx()
 	if err != nil {
@@ -351,15 +618,57 @@ func deleteDatasetTx(tx *sqlx.Tx, scopeID int64, id int64, now int64) error {
 		}
 	}
 
+	// 学科-标签的挂载随两端任意一端删除而解除：删学科清 from_id，删标签清 to_id。
+	if typ == model.DatasetSubject {
+		if _, err := tx.Exec(`
+			UPDATE t_mapping SET deleted_at = ?, updated_at = ?
+			WHERE scope_id = ? AND type = ? AND from_id = ? AND deleted_at IS NULL`,
+			now, now, scopeID, model.MappingSubjectTag, id); err != nil {
+			return err
+		}
+	}
+	if typ == model.DatasetSubjectTag {
+		var builtin int
+		if err := tx.Get(&builtin, `
+			SELECT CASE WHEN COALESCE(col2, '') = ? THEN 1 ELSE 0 END
+			FROM t_dataset WHERE id = ? AND scope_id = ?`,
+			subjectTagBuiltinFlag, id, scopeID); err != nil {
+			return err
+		}
+		if builtin == 1 {
+			return errors.New("内置标签不能删除")
+		}
+		if _, err := tx.Exec(`
+			UPDATE t_mapping SET deleted_at = ?, updated_at = ?
+			WHERE scope_id = ? AND type = ? AND to_id = ? AND deleted_at IS NULL`,
+			now, now, scopeID, model.MappingSubjectTag, id); err != nil {
+			return err
+		}
+	}
+
+	// 合班的成员关系随合班删除而解除；物理班删除时也从它所属的合班里移除该成员。
+	if typ == model.DatasetMergedClass {
+		if _, err := tx.Exec(`
+			UPDATE t_mapping SET deleted_at = ?, updated_at = ?
+			WHERE scope_id = ? AND type = ? AND from_id = ? AND deleted_at IS NULL`,
+			now, now, scopeID, model.MappingMergedClassMember, id); err != nil {
+			return err
+		}
+	}
+	if typ == model.DatasetClass {
+		if _, err := tx.Exec(`
+			UPDATE t_mapping SET deleted_at = ?, updated_at = ?
+			WHERE scope_id = ? AND type = ? AND to_id = ? AND deleted_at IS NULL`,
+			now, now, scopeID, model.MappingMergedClassMember, id); err != nil {
+			return err
+		}
+	}
+
 	var bindingIDs []int64
 	var err error
 	switch typ {
 	case model.DatasetTeacher:
-		err = tx.Select(&bindingIDs, `
-			SELECT b.id FROM t_dataset b
-			JOIN t_mapping m ON m.scope_id = b.scope_id AND m.type = ? AND m.to_id = b.id AND m.deleted_at IS NULL
-			WHERE b.scope_id = ? AND b.type = ? AND b.deleted_at IS NULL AND m.from_id = ?`,
-			model.MappingTeacherBinding, scopeID, model.DatasetBinding, id)
+		err = selectTeacherBindingIDs(tx, scopeID, id, &bindingIDs)
 	case model.DatasetClass:
 		err = selectBindingIDsByTarget(tx, model.MappingBindingClass, scopeID, id, &bindingIDs)
 	case model.DatasetSubject:
@@ -397,11 +706,7 @@ func (s *MetadataService) SaveTeacherBindings(scopeID int64, teacherID int64, pa
 
 	now := nowMS()
 	var oldIDs []int64
-	if err := tx.Select(&oldIDs, `
-		SELECT b.id FROM t_dataset b
-		JOIN t_mapping m ON m.scope_id = b.scope_id AND m.type = ? AND m.to_id = b.id AND m.deleted_at IS NULL
-		WHERE b.scope_id = ? AND b.type = ? AND b.deleted_at IS NULL AND m.from_id = ?`,
-		model.MappingTeacherBinding, scopeID, model.DatasetBinding, teacherID); err != nil {
+	if err := selectTeacherBindingIDs(tx, scopeID, teacherID, &oldIDs); err != nil {
 		return err
 	}
 	for _, bindingID := range oldIDs {
@@ -465,6 +770,188 @@ func (s *MetadataService) SaveTeacherBindings(scopeID int64, teacherID int64, pa
 		}
 	}
 	return tx.Commit()
+}
+
+// BindTextResult 文本批量绑定的结果。errors 非空表示整批都没有写入。
+type BindTextResult struct {
+	Inserted int      `json:"inserted"`
+	Skipped  int      `json:"skipped"`
+	Errors   []string `json:"errors"`
+}
+
+// BindByText 按「课程 班级 老师」的文本批量建立任课绑定。
+// 每行一条，空白分隔三列，顺序固定为 课程 / 班级 / 老师；三者在当前排班里都必须已存在。
+// 只要有一行不合法（列数不对、实体不存在、同名无法确定）整批就不写入，逐行原因放进 errors；
+// 这样一次粘贴要么全部成功、要么不改动任何数据，用户改完重贴即可。
+// 已经存在的绑定不算错误，跳过并计入 skipped。
+func (s *MetadataService) BindByText(scopeID int64, text string) (BindTextResult, error) {
+	result := BindTextResult{Errors: []string{}}
+
+	// 实体名 → id；同类型下重名用 -1 标记，避免绑错。
+	metas := []struct {
+		ID   int64  `db:"id"`
+		Type string `db:"type"`
+		Name string `db:"name"`
+	}{}
+	if err := s.store.DB().Select(&metas, `
+		SELECT id, type, COALESCE(col1, '') AS name FROM t_dataset
+		WHERE scope_id = ? AND deleted_at IS NULL AND type IN (?, ?, ?)`,
+		scopeID, model.DatasetSubject, model.DatasetClass, model.DatasetTeacher); err != nil {
+		return result, err
+	}
+	subjectIDs := map[string]int64{}
+	classIDs := map[string]int64{}
+	teacherIDs := map[string]int64{}
+	addName := func(m map[string]int64, name string, id int64) {
+		if _, ok := m[name]; ok {
+			m[name] = -1
+			return
+		}
+		m[name] = id
+	}
+	for _, m := range metas {
+		switch m.Type {
+		case model.DatasetSubject:
+			addName(subjectIDs, m.Name, m.ID)
+		case model.DatasetClass:
+			addName(classIDs, m.Name, m.ID)
+		case model.DatasetTeacher:
+			addName(teacherIDs, m.Name, m.ID)
+		}
+	}
+
+	// 已有任课，用于判重；重复的不再新建绑定节点。
+	existing := map[[3]int64]bool{}
+	rows := []bindingRow{}
+	if err := s.store.DB().Select(&rows, bindingQuery, scopeID); err != nil {
+		return result, err
+	}
+	for _, r := range rows {
+		existing[[3]int64{r.TeacherID, r.SubjectID, r.ClassID}] = true
+	}
+
+	resolve := func(m map[string]int64, label, name string) (int64, string) {
+		id, ok := m[name]
+		if !ok {
+			return 0, fmt.Sprintf("%s「%s」不存在", label, name)
+		}
+		if id < 0 {
+			return 0, fmt.Sprintf("%s「%s」存在多个同名项，无法确定", label, name)
+		}
+		return id, ""
+	}
+
+	// 先只解析校验、收集待写入项，确认全部合法后再落库。
+	type pendingBinding struct{ subjectID, classID, teacherID int64 }
+	pending := []pendingBinding{}
+	seen := map[[3]int64]bool{}
+	for i, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			result.Errors = append(result.Errors, fmt.Sprintf("第 %d 行「%s」：格式不正确，应为「课程 班级 老师」三列，空格分隔", i+1, line))
+			continue
+		}
+		subjectID, subjectErr := resolve(subjectIDs, "课程", fields[0])
+		classID, classErr := resolve(classIDs, "班级", fields[1])
+		teacherID, teacherErr := resolve(teacherIDs, "老师", fields[2])
+		msgs := []string{}
+		for _, m := range []string{subjectErr, classErr, teacherErr} {
+			if m != "" {
+				msgs = append(msgs, m)
+			}
+		}
+		if len(msgs) > 0 {
+			result.Errors = append(result.Errors, fmt.Sprintf("第 %d 行「%s」：%s", i+1, line, strings.Join(msgs, "；")))
+			continue
+		}
+		key := [3]int64{teacherID, subjectID, classID}
+		if existing[key] || seen[key] {
+			result.Skipped++
+			continue
+		}
+		seen[key] = true
+		pending = append(pending, pendingBinding{subjectID: subjectID, classID: classID, teacherID: teacherID})
+	}
+
+	if len(result.Errors) > 0 || len(pending) == 0 {
+		return result, nil
+	}
+
+	tx, err := s.store.DB().Beginx()
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+
+	now := nowMS()
+	for _, b := range pending {
+		res, err := tx.Exec(`INSERT INTO t_dataset(scope_id, type, created_at, updated_at) VALUES(?, ?, ?, ?)`,
+			scopeID, model.DatasetBinding, now, now)
+		if err != nil {
+			return result, err
+		}
+		bindingID, err := res.LastInsertId()
+		if err != nil {
+			return result, err
+		}
+		links := []struct {
+			typ      string
+			from, to int64
+		}{
+			{model.MappingTeacherBinding, b.teacherID, bindingID},
+			{model.MappingBindingSubject, bindingID, b.subjectID},
+			{model.MappingBindingClass, bindingID, b.classID},
+		}
+		for _, link := range links {
+			if _, err := tx.Exec(
+				`INSERT INTO t_mapping(scope_id, type, from_id, to_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)`,
+				scopeID, link.typ, link.from, link.to, now, now); err != nil {
+				return result, err
+			}
+		}
+		result.Inserted++
+	}
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+// ClearTeacherBindings 清除若干老师名下的全部任课绑定，老师本身保留。
+// 老师不存在或本来就没有绑定都直接跳过，不报错；整体在一个事务里完成。
+func (s *MetadataService) ClearTeacherBindings(scopeID int64, teacherIDs []int64) error {
+	tx, err := s.store.DB().Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := nowMS()
+	for _, teacherID := range teacherIDs {
+		var bindingIDs []int64
+		if err := selectTeacherBindingIDs(tx, scopeID, teacherID, &bindingIDs); err != nil {
+			return err
+		}
+		for _, bindingID := range bindingIDs {
+			if err := softDeleteBinding(tx, scopeID, bindingID, now); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// selectTeacherBindingIDs 找出某个老师名下的全部任课节点 id。
+func selectTeacherBindingIDs(tx *sqlx.Tx, scopeID int64, teacherID int64, out *[]int64) error {
+	return tx.Select(out, `
+		SELECT b.id FROM t_dataset b
+		JOIN t_mapping m ON m.scope_id = b.scope_id AND m.type = ? AND m.to_id = b.id AND m.deleted_at IS NULL
+		WHERE b.scope_id = ? AND b.type = ? AND b.deleted_at IS NULL AND m.from_id = ?`,
+		model.MappingTeacherBinding, scopeID, model.DatasetBinding, teacherID)
 }
 
 // checkNameUnique 同一范围内同类型名称不重复。

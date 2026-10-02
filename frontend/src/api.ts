@@ -11,11 +11,14 @@ export { CalendarService, MetadataService, ScopeService }
 
 export type {
   BatchResult,
+  BindTextResult,
   BindingView,
   CalendarConfig,
   DatasetView,
   DutyView,
+  MemberView,
   ScopeInfo,
+  TagView,
 } from '../bindings/work-schedule/internal/services/models'
 
 /** 列表里用的实体：任课字段已经归一成非空数组。 */
@@ -31,6 +34,8 @@ export const DATASET_TEACHER = 'teacher'
 export const DATASET_CLASS = 'class'
 export const DATASET_SUBJECT = 'subject'
 export const DATASET_SHIFT = 'shift'
+export const DATASET_SUBJECT_TAG = 'subject_tag'
+export const DATASET_MERGED_CLASS = 'merged_class'
 
 // 值班状态，对应 t_duty.required
 export const DUTY_UNSPECIFIED = 'unspecified'

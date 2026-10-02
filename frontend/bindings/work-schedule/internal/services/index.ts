@@ -12,10 +12,13 @@ export {
 
 export type {
     BatchResult,
+    BindTextResult,
     BindingInput,
     BindingView,
     CalendarConfig,
     DatasetView,
     DutyView,
-    ScopeInfo
+    MemberView,
+    ScopeInfo,
+    TagView
 } from "./models.js";

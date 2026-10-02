@@ -48,9 +48,29 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
-// migrate 建表建索引，可重复执行。
+// migrate 建表建索引，可重复执行；对旧库补齐后加的列。
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(schemaSQL)
+	if _, err := s.db.Exec(schemaSQL); err != nil {
+		return err
+	}
+	return s.ensureColumn("t_rule", "param", "TEXT")
+}
+
+// ensureColumn 幂等补列：已存在则什么都不做。
+// SQLite 没有 ADD COLUMN IF NOT EXISTS，所以先查 PRAGMA。
+func (s *Store) ensureColumn(table, column, decl string) error {
+	rows := []struct {
+		Name string `db:"name"`
+	}{}
+	if err := s.db.Unsafe().Select(&rows, "PRAGMA table_info("+table+")"); err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if r.Name == column {
+			return nil
+		}
+	}
+	_, err := s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + decl)
 	return err
 }
 

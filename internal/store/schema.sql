@@ -32,11 +32,12 @@ CREATE TABLE IF NOT EXISTS t_dataset (
     FOREIGN KEY (scope_id) REFERENCES t_scope(id) ON DELETE RESTRICT
 );
 
--- 规则正文：max_per_day / max_per_week / fair_count / fair_interval
+-- 规则正文：type + param(JSON)；fair_count / fair_interval / max_per_day ... 等
 CREATE TABLE IF NOT EXISTS t_rule (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     scope_id   INTEGER NOT NULL,
     type       VARCHAR(64) NOT NULL,
+    param      TEXT,
     col1       VARCHAR(255),
     col2       VARCHAR(255),
     col3       VARCHAR(255),
@@ -179,3 +180,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_assignment_current
     ON t_assignment(scope_id, day, shift_id, class_id) WHERE deleted_at IS NULL AND version_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assignment_version
     ON t_assignment(scope_id, version_id, day, shift_id, class_id) WHERE deleted_at IS NULL AND version_id IS NOT NULL;
+
+-- 通用规则挂载（type='rule_mount'，from_id=目标实体，to_id=规则）
+CREATE INDEX IF NOT EXISTS idx_mapping_rule_mount
+    ON t_mapping(scope_id, to_id) WHERE deleted_at IS NULL AND type = 'rule_mount';
